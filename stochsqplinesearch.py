@@ -21,7 +21,7 @@ def sqp_det_iter(k,
     h_k,
     merit_fn,
     delta_q,
-    adaptive=False, mod_red_fac=0.5,merit_par=1, merit_par_red_fac=1e-6, alpha=1, v=0.5, nu=1e-4, rho=3, L=1, gamma=None
+    adaptive=False, model_red_factor=0.5,merit_par=1, merit_par_red_factor=1e-6, alpha=1, v=0.5, nu=1e-4, rho=3, L=1, gamma=None
     ):
 
     # set parameter values
@@ -31,7 +31,9 @@ def sqp_det_iter(k,
         ce_k = []
     if adaptive and gamma is None:
         gamma = np.ones(len(ce_k) + len(ci_k))
-    m = np.shape(ce_k)[0] + np.shape(ci_k)[0]
+
+    n = len(x_k)
+    m = len(ce_k) + len(ci_k)
 
     # construct and solve the SQP linear problem
     sqp_A = np.vstack([
@@ -40,23 +42,24 @@ def sqp_det_iter(k,
     ])
     sqp_b = -np.hstack([obj_grad_k,ce_k])
     qp_sol = solve(sqp_A, sqp_b)
-    d_k, y_k = qp_sol[:len(x_k)], qp_sol[len(x_k):]
+    d_k, y_k = qp_sol[:n], qp_sol[n:]
 
     # check stopping condition
     #TODO: ADD NUMERICAL STOPPING CONDITION
     if np.all(obj_grad_k + j_k[np.newaxis].T @ y_k) == 0 and np.all(ce_k) == 0:
         return (x_k, merit_par, L, True)
 
-    # calc the quadratic term to use later
-    qt = np.max(d_k.T @ h_k @ d_k, 0)
+    # calc some terms to use later
+    quad_term = np.max(d_k.T @ h_k @ d_k, 0)
+    constraint_l1_k = np.sum(np.abs(ce_k))
 
     # calculate merit parameter
-    if obj_grad_k.T @ d_k + qt <= 0:
+    if obj_grad_k.T @ d_k + quad_term <= 0:
         merit_par_trial = np.inf
     else:
-        merit_par_trial = ((1-mod_red_fac)*np.sum(np.abs(ce_k)))/(obj_grad_k.T@d_k + qt)
+        merit_par_trial = ((1-model_red_factor)*constraint_l1_k)/(obj_grad_k.T@d_k + quad_term)
     if merit_par > merit_par_trial:
-        merit_par = (1-merit_par_red_fac)*merit_par_trial
+        merit_par = (1-merit_par_red_factor)*merit_par_trial
     
     if adaptive:
         # set Lipschitz estimates as 1/2 of previous iteration
@@ -64,11 +67,11 @@ def sqp_det_iter(k,
             L *= 0.5
             gamma *= 0.5
         while True:
-            # calculate stepsize
             d_k_l2 = np.sum(d_k**2)
+            # calculate stepsize
             alpha_denom = merit_par*L+np.sum(gamma)*d_k_l2
-            alpha_k_hat = 2*(1-nu)*delta_q(x_k, merit_par, obj_grad_k, qt, d_k, ce_k)/alpha_denom
-            alpha_k_tilde = alpha_k_hat - 4*np.sum(np.abs(ce_k))/alpha_denom
+            alpha_k_hat = 2*(1-nu)*delta_q(x_k, merit_par, obj_grad_k, quad_term, d_k, ce_k)/alpha_denom
+            alpha_k_tilde = alpha_k_hat - 4*constraint_l1_k/alpha_denom
             if alpha_k_hat < 1:
                 alpha_k = alpha_k_hat
             elif alpha_k_tilde <= 1:
@@ -76,10 +79,9 @@ def sqp_det_iter(k,
             else:
                 alpha_k = alpha_k_tilde
             
-            reduction_term = nu*alpha_k*delta_q(x_k, merit_par, obj_grad_k, qt, d_k, ce_k)
+            reduction_term = nu*alpha_k*delta_q(x_k, merit_par, obj_grad_k, quad_term, d_k, ce_k)
             c_212a = f(x_k + alpha_k*d_k) <= f(x_k) + alpha_k*obj_grad_k.T@d_k + 0.5*L*(alpha_k**2)*(d_k_l2)
             c_212b = np.abs(c(x_k + alpha_k*d_k)) <= np.abs(ce_k + alpha_k*j_k.T@d_k) + 0.5*gamma*(alpha_k**2)*d_k_l2
-            # check 2.10
             if merit_fn(x_k+alpha_k*d_k, merit_par) <= merit_fn(x_k, merit_par) - reduction_term or (c_212a and c_212b):
                 x_next = x_k + alpha_k*d_k
                 break
@@ -92,14 +94,14 @@ def sqp_det_iter(k,
         alpha_k = alpha
         # check sufficient reduction
         while True:
-            reduction_term = nu*alpha_k*delta_q(x_k, merit_par, obj_grad_k, qt, d_k, ce_k)
+            reduction_term = nu*alpha_k*delta_q(x_k, merit_par, obj_grad_k, quad_term, d_k, ce_k)
             if merit_fn(x_k+alpha_k*d_k, merit_par) <= merit_fn(x_k, merit_par) - reduction_term:
                 break
             alpha_k *= v
         x_next = x_k + alpha_k*d_k
     return x_next, merit_par, L, False
 
-def det_sqp_ls(p: Problem, x0, sigma=0.5,merit_par=0.5,eps=1e-6, alpha=1, v=0.5, nu=1e-4, L=1):
+def optimize_det(p: Problem, x0, sigma=0.5,merit_par=0.5,eps=1e-6, alpha=1, v=0.5, nu=1e-4, L=1):
     # sigma: model reduction factor
     # eps: parameter reduction factor
     # build merit fn
@@ -136,4 +138,4 @@ def H(x): return np.array([[6*x[0],0],[0,6*x[1]]])
 
 p = Problem(f, g, c, J, H)
 
-det_sqp_ls(p, x0, L=1)
+optimize_det(p, x0, L=1)
