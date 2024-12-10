@@ -3,7 +3,6 @@ import scipy
 from scipy.linalg import solve
 import scipy.optimize
 
-
 class Problem:
     def __init__(self, f, g, c, J, H):
         self.f = f
@@ -20,7 +19,7 @@ def sqp_det_iter(k,
     ci_k,
     j_k,
     h_k,
-    phi,
+    merit_fn,
     delta_q,
     adaptive=False, mod_red_fac=0.5,merit_par=1, merit_par_red_fac=1e-6, alpha=1, v=0.5, nu=1e-4, rho=3, L=1, gamma=None
     ):
@@ -83,47 +82,42 @@ def sqp_det_iter(k,
             c_212a = f(x_k + alpha_k*d_k) <= f(x_k) + alpha_k*obj_grad_k.T@d_k + 0.5*L*(alpha_k**2)*(d_k_l2)
             c_212b = np.abs(c(x_k + alpha_k*d_k)) <= np.abs(ce_k + alpha_k*j_k.T@d_k) + 0.5*gamma*(alpha_k**2)*d_k_l2
             # check 2.10
-            if phi(x_k+alpha_k*d_k, merit_par) <= phi(x_k, merit_par) - reduction_term or (c_212a and c_212b):
+            if merit_fn(x_k+alpha_k*d_k, merit_par) <= merit_fn(x_k, merit_par) - reduction_term or (c_212a and c_212b):
                 x_next = x_k + alpha_k*d_k
                 break
             elif not c_212a:
                 L *= rho
             elif not np.all(c_212b):
                 gamma[not c_212b] *= rho
-            # if phi(x_k+alpha_k*d_k, tau) <= phi(x_k, tau) - reduction_term:
-                # break
-            # elif not np.all(f(x_k + alpha_k*d_k) <= f(x_k) + alpha_k*obj_grad_k.T@d_k + 0.5*L*(alpha_k**2)*(d_k_l2)):
-                # L *= rho
-            # elif not np.all(np.abs(c(x_k + alpha_k*d_k)) <= np.abs(ce_k + alpha_k*j_k.T@d_k) + 0.5*gamma*(alpha_k**2)*d_k_l2):
     else:
         # calculate step size (linesearch)
         alpha_k = alpha
         # check sufficient reduction
         while True:
             reduction_term = nu*alpha_k*delta_q(x_k, merit_par, obj_grad_k, qt, d_k, ce_k)
-            if phi(x_k+alpha_k*d_k, merit_par) <= phi(x_k, merit_par) - reduction_term:
+            if merit_fn(x_k+alpha_k*d_k, merit_par) <= merit_fn(x_k, merit_par) - reduction_term:
                 break
             alpha_k *= v
         x_next = x_k + alpha_k*d_k
     return x_next, merit_par, L, False
 
-def det_sqp_ls(f, g, J, H, c, x0, sigma=0.5,tau=1,eps=1e-6, alpha=1, v=0.5, nu=1e-4, L=1):
+def det_sqp_ls(p: Problem, x0, sigma=0.5,merit_par=1,eps=1e-6, alpha=1, v=0.5, nu=1e-4, L=1):
     # sigma: model reduction factor
     # eps: parameter reduction factor
     # build merit fn
-    def merit(x, tau_k): return tau_k*f(x)+np.sum(np.abs(c(x)))
-    def delta_q(x_k, tau_k, g_k, qt, d_k, c_l1=None): return -tau_k*(g_k.T@d_k + 0.5*qt) + np.sum(np.abs(c(x_k)))
+    def merit_fn(x, merit_par): return merit_par*p.f(x)+np.sum(np.abs(p.c(x)))
+    def delta_q(x, merit_par, g, quad_term, d, c_l1=None): return -merit_par*(g.T@d + 0.5*quad_term) + np.sum(np.abs(p.c(x)))
     x_k = x0
     print(f'Starting conditions: x_0: {x0}, f(x_{0})={f(x0)}, c={c(x0)}')
     for k in range(4000):
-        x_k, tau, L, is_finished = sqp_det_iter(
+        x_k, merit_par, L, is_finished = sqp_det_iter(
             adaptive=True,
-            k=k, x_k=x_k, obj_grad_k=g(x_k), c=c, ce_k=c(x_k), ci_k=None, j_k=J(x_k), h_k=H(x_k),
-            phi=merit,
+            k=k, x_k=x_k, obj_grad_k=p.g(x_k), c=p.c, ce_k=p.c(x_k), ci_k=None, j_k=p.J(x_k), h_k=p.H(x_k),
+            merit_fn=merit_fn,
             delta_q=delta_q,
-            merit_par=tau,
+            merit_par=merit_par,
             L=L)
-        print(f'Iteration: {k+1}, x_{k+1}: {x_k}, f(x_{k+1})={f(x_k)}, c={c(x_k)}, tau={tau}')
+        print(f'Iteration: {k+1}, x_{k+1}: {x_k}, f(x_{k+1})={f(x_k)}, c={c(x_k)}, tau={merit_par}')
         if is_finished:
             return x_k
 
@@ -142,4 +136,6 @@ def c(x): return np.array([x[0]**2 + x[1]**2-1])
 def J(x): return np.array([2*x[0], 2*x[1]])
 def H(x): return np.array([[2,0],[0,2]])
 
-det_sqp_ls(f, g, J, H, c, x0, L=1)
+p = Problem(f, g, c, J, H)
+
+det_sqp_ls(p, x0, L=1)
