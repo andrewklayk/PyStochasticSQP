@@ -55,7 +55,6 @@ def sqp_det_iter(k,
         merit_par_trial = np.inf
     else:
         merit_par_trial = ((1-mod_red_fac)*np.sum(np.abs(ce_k)))/(obj_grad_k.T@d_k + qt)
-        # t_k_trial = ((1-sigma)*np.sum(np.abs(ce_k) + np.abs(ci_k)))/(obj_grad_k.T@d_k + qt)
     if merit_par > merit_par_trial:
         merit_par = (1-merit_par_red_fac)*merit_par_trial
     
@@ -69,7 +68,6 @@ def sqp_det_iter(k,
             d_k_l2 = np.sum(d_k**2)
             alpha_denom = merit_par*L+np.sum(gamma)*d_k_l2
             alpha_k_hat = 2*(1-nu)*delta_q(x_k, merit_par, obj_grad_k, qt, d_k, ce_k)/alpha_denom
-            # alpha_k_tilde = alpha_k_hat - 4*np.sum(np.abs(ce_k) + np.abs(ci_k))/alpha_denom
             alpha_k_tilde = alpha_k_hat - 4*np.sum(np.abs(ce_k))/alpha_denom
             if alpha_k_hat < 1:
                 alpha_k = alpha_k_hat
@@ -101,7 +99,7 @@ def sqp_det_iter(k,
         x_next = x_k + alpha_k*d_k
     return x_next, merit_par, L, False
 
-def det_sqp_ls(p: Problem, x0, sigma=0.5,merit_par=1,eps=1e-6, alpha=1, v=0.5, nu=1e-4, L=1):
+def det_sqp_ls(p: Problem, x0, sigma=0.5,merit_par=0.5,eps=1e-6, alpha=1, v=0.5, nu=1e-4, L=1):
     # sigma: model reduction factor
     # eps: parameter reduction factor
     # build merit fn
@@ -109,7 +107,7 @@ def det_sqp_ls(p: Problem, x0, sigma=0.5,merit_par=1,eps=1e-6, alpha=1, v=0.5, n
     def delta_q(x, merit_par, g, quad_term, d, c_l1=None): return -merit_par*(g.T@d + 0.5*quad_term) + np.sum(np.abs(p.c(x)))
     x_k = x0
     print(f'Starting conditions: x_0: {x0}, f(x_{0})={f(x0)}, c={c(x0)}')
-    for k in range(4000):
+    for k in range(100):
         x_k, merit_par, L, is_finished = sqp_det_iter(
             adaptive=True,
             k=k, x_k=x_k, obj_grad_k=p.g(x_k), c=p.c, ce_k=p.c(x_k), ci_k=None, j_k=p.J(x_k), h_k=p.H(x_k),
@@ -134,7 +132,7 @@ def f(x): return x[0]**3 + x[1]**3
 def g(x): return np.array([3*x[0]**2, 3*x[1]**2])
 def c(x): return np.array([x[0]**2 + x[1]**2-1])
 def J(x): return np.array([2*x[0], 2*x[1]])
-def H(x): return np.array([[2,0],[0,2]])
+def H(x): return np.array([[6*x[0],0],[0,6*x[1]]])
 
 p = Problem(f, g, c, J, H)
 
