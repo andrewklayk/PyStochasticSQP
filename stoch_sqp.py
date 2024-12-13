@@ -1,17 +1,13 @@
 import numpy as np
 from numpy.linalg import norm
-import scipy
-from scipy.linalg import solve
-import scipy.optimize
 from scipy.optimize import minimize, LinearConstraint
-from numpy import random
 
 from problem import Problem
 
 def _estimate_lipschitz(x, g, g_k, j, j_k, rng, lo=-1, lc=-1, batch_size=10, displacement=1e-4):
     lipschitz_constraint = lo
     lipschitz_objective = lc
-
+    
     sampleDirection = rng.normal(size=x.shape)
     for _ in range(batch_size):
         samplePoint = x + displacement * sampleDirection/norm(sampleDirection, ord=2)
@@ -76,7 +72,8 @@ def _sqp_stoch_iter(
     model_red_factor=0.1,
     merit_par=0.1, merit_par_red_factor = 1e-2,
     ratio_par=1, ratio_par_red_factor=1e-2,
-    suf_dec_par=0.5, stepsize_scaling=1,
+    suf_dec_par=0.5,
+    stepsize_scaling=1,
     subproblem_reg_par=1e-7,
     proj_width = 1e4,
     lengthening_ratio=1.1
@@ -124,7 +121,6 @@ def _sqp_stoch_iter(
     if _merit_par > merit_par_trial:
         _merit_par = min((1-merit_par_red_factor)*_merit_par, merit_par_trial)
     model_reduction = delta_q(x_k, _merit_par, obj_grad_k, j_k, d, c_k)
-    # model_reduction = delta_q(x_k, _merit_par, obj_grad_k, _quad_term, d, _c_l1)
     
     # ratio parameter
     if _d_l2 >= 1e-6:
@@ -167,7 +163,7 @@ def _sqp_stoch_iter(
     return x_next, _merit_par, _ratio_par, False
 
 
-def optimize_st(p: Problem, x0,L_obj=0, L_con=[],  merit_par=0.5, ratio_par=1, iter_limit=100):
+def optimize_st(p: Problem, x0,L_obj=0, L_con=[],  merit_par=0.5, ratio_par=1, iter_limit=100, verbose=1):
     
     # def merit_fn(x, merit_par):
     #     return merit_par*p.f(x)+norm(p.c(x), ord=2)
@@ -185,8 +181,8 @@ def optimize_st(p: Problem, x0,L_obj=0, L_con=[],  merit_par=0.5, ratio_par=1, i
     _merit_par = merit_par
     _ratio_par = ratio_par
     
-    
-    print(f'Starting conditions: x_0: {x0}, f(x_{0})={p.f(x0)}, c={p.c(x0)}')
+    if verbose == 1:
+        print(f'Starting conditions: x_0: {x0}, f(x_{0})={p.f(x0)}, c={p.c(x0)}')
     for k in range(iter_limit):
         #########################
         # ESTIMATE L. CONSTANTS #
@@ -201,8 +197,9 @@ def optimize_st(p: Problem, x0,L_obj=0, L_con=[],  merit_par=0.5, ratio_par=1, i
             delta_q=delta_q,
             L_obj=_L_obj, L_con=_L_con,
             merit_par=_merit_par, ratio_par=_ratio_par)
-        print(f'Iteration: {k+1}, x_{k+1}: {x_k}, f(x_{k+1})={p.f(x_k)}, c={p.c(x_k)}, mp={_merit_par}, rp={_ratio_par}')
+        if verbose == 1:
+            print(f'Iteration: {k+1}, x_{k+1}: {x_k}, f(x_{k+1})={p.f(x_k)}, c={p.c(x_k)}, mp={_merit_par}, rp={_ratio_par}')
         if is_finished:
             return x_k
-
-
+    print(f'Finished without convergence, iteration limit = {iter_limit} exhausted')
+    return x_k

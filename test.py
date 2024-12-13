@@ -20,7 +20,7 @@ def main():
 
     p = Problem(f, g, c, J, H)
 
-    optimize_st(p, x0,iter_limit=100)
+    optimize_st(p, x0,iter_limit=100,verbose=1)
 
 if __name__ == "__main__":
     main()

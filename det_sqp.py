@@ -33,13 +33,13 @@ def _sqp_det_iter(
     _L = L
 
     # construct and solve the SQP linear problem
-    lp_A = np.vstack([
+    qp_A = np.vstack([
         np.hstack([h_k, j_k[np.newaxis].T]),
         np.hstack([j_k[np.newaxis],np.zeros((m,m))])
     ])
-    lp_b = -np.hstack([obj_grad_k,ce_k])
-    lp_sol = solve(lp_A, lp_b)
-    d, y = lp_sol[:n], lp_sol[n:]
+    qp_b = -np.hstack([obj_grad_k,ce_k])
+    qp_sol = solve(qp_A, qp_b)
+    d, y = qp_sol[:n], qp_sol[n:]
 
     # check stopping condition
     #TODO: ADD NUMERICAL STOPPING CONDITION BASED ON INITIAL VALUES
