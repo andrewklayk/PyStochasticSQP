@@ -10,7 +10,7 @@ def _estimate_lipschitz(x, g, g_k, j, j_k, rng, lo=-1, lc=-1, batch_size=10, dis
     
     sampleDirection = rng.normal(size=x.shape)
     for _ in range(batch_size):
-        samplePoint = x + displacement * sampleDirection/norm(sampleDirection, ord=2)
+        samplePoint = x + displacement * sampleDirection/norm(sampleDirection)
         lip_con, lip_obj = _compute_lipschitz_estimates(samplePoint, x, g, g_k, j, j_k)
         lipschitz_constraint = np.max([lipschitz_constraint,lip_con])
         # elementwise max
@@ -33,16 +33,16 @@ def _compute_direction(_x, _g, _c, _j, _h, reg_par):
         w = val[n:]
         return 0.5*norm(_c + _j.T@_j*w)**2 + 0.5*reg_par*norm(u)**2
     constr = [
-        LinearConstraint(np.hstack([_j, np.zeros((m, m))]), np.zeros_like(_c), np.zeros_like(_c)),
-        LinearConstraint(np.hstack([np.eye(n, n), _j.T]), -_x, np.ones_like(_x)*np.inf),
+        LinearConstraint(np.hstack([_j, np.zeros((m, m)) if m > 1 else [0]]), np.zeros_like(_c), np.zeros_like(_c)),
+        LinearConstraint(np.hstack([np.eye(n, n), _j.T if m > 1 else _j[np.newaxis].T]), -_x, np.ones_like(_x)*np.inf),
     ]
     res = minimize(
         constraint_subproblem,
         x0=np.zeros(shape=(n+m)),
-        constraints=constr
-        # jac=
+        constraints=constr,
+        # jac=lambda x: x
         )
-    v = res.x[:n] + _j.T@res.x[n:]
+    v = res.x[:n] + (_j.T@res.x[n:] if m > 1 else _j*res.x[n:])
 
     #solve second subproblem
     def dir_subproblem(d):
@@ -55,9 +55,9 @@ def _compute_direction(_x, _g, _c, _j, _h, reg_par):
         dir_subproblem,
         x0=np.zeros_like(_x),
         constraints=constr,
-        # jac=
+        jac=lambda d: _g + _h@d
         )
-    return res.x
+    return res.x, v
     
 
 def _sqp_stoch_iter(
@@ -90,24 +90,24 @@ def _sqp_stoch_iter(
 
     _merit_par = merit_par
     _ratio_par = ratio_par
-
-    d = _compute_direction(_x=x_k,
+    subproblem_reg_par = min(subproblem_reg_par, 1e-4*norm(c_k))
+    d, v = _compute_direction(_x=x_k,
                            _g=obj_grad_k,
                            _c=ce_k if len(ci_k) == 0 else np.hstack(ce_k, ci_k),
                            _j=j_k,
                            _h=h_k,
                            reg_par=subproblem_reg_par)
 
-    # check stopping condition
-    #TODO: ADD NUMERICAL STOPPING CONDITION BASED ON INITIAL VALUES
-    # if np.max(obj_grad_k + j_k[np.newaxis].T @ y_k) <= 1e-6*np.max((1,))
-    if np.all(np.abs(obj_grad_k) < 1e-6) and np.all(np.abs([ce_k, ci_k]) < 1e-6):
-        return (x_k, _merit_par, _ratio_par, True)
-
     # calc some terms to use later
     _quad_term = np.max(d.T @ h_k @ d, 0)
     _c_l2 = norm(ce_k)
     _d_l2 = norm(d)
+
+    # check stopping condition
+    #TODO: ADD NUMERICAL STOPPING CONDITION BASED ON INITIAL VALUES
+    # if np.max(obj_grad_k + j_k[np.newaxis].T @ y_k) <= 1e-6*np.max((1,))
+    if norm(obj_grad_k) < 1e-6 and _c_l2 < 1e-6:
+        return (x_k, _merit_par, _ratio_par, True)
 
     ########################
     # CALCULATE PARAMETERS #
@@ -165,10 +165,10 @@ def _sqp_stoch_iter(
 
 def optimize_st(p: Problem, x0,L_obj=0, L_con=[],  merit_par=0.5, ratio_par=1, iter_limit=100, verbose=1):
     
-    # def merit_fn(x, merit_par):
-    #     return merit_par*p.f(x)+norm(p.c(x), ord=2)
+    def merit_fn(x, merit_par):
+        return merit_par*p.f(x)+norm(p.c(x))
     def delta_q(x, merit_par, _g, _j, _d, _c, _c_l2=None):
-        return -merit_par*_g.T@_d + norm(_c, ord=2) - norm(_c+_j@_d)
+        return -merit_par*_g.T@_d + norm(_c) - norm(_c+_j@_d)
     
     x_k = x0
     rng = np.random.default_rng(42)
@@ -198,7 +198,7 @@ def optimize_st(p: Problem, x0,L_obj=0, L_con=[],  merit_par=0.5, ratio_par=1, i
             L_obj=_L_obj, L_con=_L_con,
             merit_par=_merit_par, ratio_par=_ratio_par)
         if verbose == 1:
-            print(f'Iteration: {k+1}, x_{k+1}: {x_k}, f(x_{k+1})={p.f(x_k)}, c={p.c(x_k)}, mp={_merit_par}, rp={_ratio_par}')
+            print(f"""Iteration: {k+1} | x_{k+1}: {x_k} | f(x_{k+1})={p.f(x_k):.4f}, c={p.c(x_k)} | merit fn={merit_fn(x_k, _merit_par):.10f} |  mp={_merit_par:.4e} | rp={_ratio_par:.4f}""")
         if is_finished:
             return x_k
     print(f'Finished without convergence, iteration limit = {iter_limit} exhausted')
