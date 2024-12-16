@@ -1,3 +1,3 @@
 # StochasticSQP
 
-Python implementation of [StochasticSQP](github.com/frankecurtis/StochasticSQP)
+Python implementation of [StochasticSQP](https://github.com/frankecurtis/StochasticSQP)
